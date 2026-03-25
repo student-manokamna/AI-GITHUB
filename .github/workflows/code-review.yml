@@ -1,0 +1,41 @@
+name: AI Code Review
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  ai-review:
+    name: Run AI Code Review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Trigger AI Review Agent
+        env:
+          WEBHOOK_URL: ${{ secrets.AI_REVIEW_WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+        run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          OWNER="${{ github.event.repository.owner.login }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          EVENT="${{ github.event_name }}"
+
+          PAYLOAD="{\"repository\":{\"name\":\"$REPO_NAME\",\"owner\":{\"login\":\"$OWNER\"}}"
+          if [ "$EVENT" = "pull_request" ] && [ -n "$PR_NUMBER" ]; then
+            PAYLOAD="$PAYLOAD,\"pull_request\":{\"number\":$PR_NUMBER}"
+          fi
+          PAYLOAD="$PAYLOAD}"
+
+          SIGNATURE=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | sed 's/SHA2-256(stdin)= /sha256=/' | sed 's/.* /sha256=/')
+
+          curl -s -X POST "$WEBHOOK_URL/api/webhook" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: $EVENT" \
+            -H "X-Hub-Signature-256: $SIGNATURE" \
+            -d "$PAYLOAD" || echo "Webhook delivery attempted"
+
+          echo "AI review triggered for $OWNER/$REPO_NAME"
